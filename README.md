@@ -4,6 +4,8 @@ Cut a clip out of a video by typing a start and end time. No video editor, no ti
 
 Built for the "I just want the 30 seconds from the middle of this recording" job. Drop in a video, type `2:42` and `3:14`, click **Create clip**.
 
+![Video Clipper window after cutting a clip](docs/screenshot.png)
+
 ## Download
 
 Get the latest installer from the [**Releases**](../../releases/latest) page, run it, and you're done. It includes everything it needs (including [FFmpeg](THIRD-PARTY-NOTICES.md)); nothing else to install.
