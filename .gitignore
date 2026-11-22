@@ -1,0 +1,9 @@
+bin/
+obj/
+publish/
+out/
+dist/
+ffmpeg.exe
+ffmpeg/
+*.user
+.vs/

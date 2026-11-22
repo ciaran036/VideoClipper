@@ -1,0 +1,67 @@
+name: Build installer
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # Pinned official LGPL (shared) FFmpeg build from BtbN/FFmpeg-Builds.
+  # To update: pick a newer release tag there and copy the matching asset name.
+  FFMPEG_TAG: autobuild-2026-11-22-12-36
+  FFMPEG_ASSET: ffmpeg-n9.0.2-61-gd59078794d-win64-lgpl-shared-9.0.zip
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download and verify FFmpeg
+        shell: pwsh
+        run: |
+          $base = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$env:FFMPEG_TAG"
+          Invoke-WebRequest "$base/$env:FFMPEG_ASSET" -OutFile ffmpeg.zip
+          Invoke-WebRequest "$base/checksums.sha256" -OutFile checksums.sha256
+          $line = Select-String -Path checksums.sha256 -Pattern ([regex]::Escape($env:FFMPEG_ASSET)) | Select-Object -First 1
+          if (-not $line) { throw "No checksum entry for $env:FFMPEG_ASSET" }
+          $expected = ($line.Line -split '\s+')[0].ToLower()
+          $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) { throw "Checksum mismatch: expected $expected, got $actual" }
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-extract
+          $root = Get-ChildItem ffmpeg-extract -Directory | Select-Object -First 1
+          New-Item -ItemType Directory -Force dist\ffmpeg | Out-Null
+          Copy-Item "$($root.FullName)\bin\*" dist\ffmpeg -Recurse
+          Copy-Item "$($root.FullName)\LICENSE.txt" dist\ffmpeg -ErrorAction SilentlyContinue
+          Get-ChildItem dist\ffmpeg | Select-Object Name, Length
+
+      - name: Publish app (self-contained, single file)
+        run: dotnet publish VideoClipper.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist\app
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer\VideoClipper.iss
+          Get-ChildItem dist\*.exe | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VideoClipper-Setup
+          path: dist/VideoClipper-Setup-*.exe
+
+      - name: Create GitHub release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME (Get-ChildItem dist\VideoClipper-Setup-*.exe).FullName --title "Video Clipper $env:GITHUB_REF_NAME" --generate-notes
